@@ -114,8 +114,13 @@ export async function POST(request: Request) {
       const userId = session.metadata?.userId ?? session.client_reference_id ?? null
       const email = session.customer_details?.email ?? session.customer_email ?? null
       const customerId = customerIdOf(session.customer)
-      const priceId = await checkoutPriceId(session.id)
-      const plan = session.metadata?.plan === "base" ? "base" : planFromPriceId(priceId)
+      let plan: "base" | "pro"
+      if (session.metadata?.plan === "pro" || session.metadata?.plan === "base") {
+        plan = session.metadata.plan
+      } else {
+        const priceId = await checkoutPriceId(session.id)
+        plan = planFromPriceId(priceId)
+      }
       await setPremium({ userId, email, plan, customerId })
       break
     }
