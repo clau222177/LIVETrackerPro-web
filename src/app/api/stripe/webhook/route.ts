@@ -4,14 +4,31 @@ import { serviceClient } from "@/lib/supabase/service"
 
 export const dynamic = "force-dynamic"
 
-type SessionData = {
+type CustomerRef = string | { id: string } | null
+
+type CheckoutSession = {
   id: string
-  customer: string | { id: string } | null
+  customer: CustomerRef
   customer_email?: string | null
   customer_details?: { email?: string | null } | null
   metadata?: Record<string, string> | null
   client_reference_id?: string | null
   subscription?: string | { id: string } | null
+}
+
+type Invoice = {
+  customer: CustomerRef
+  customer_email?: string | null
+  customer_details?: { email?: string | null } | null
+  metadata?: Record<string, string> | null
+  subscription?: string | { id: string } | null
+  lines?: {
+    data?: {
+      price?: { id?: string | null } | null
+      plan?: { id?: string | null } | null
+      amount?: number | null
+    }[]
+  } | null
 }
 
 function planFromPriceId(priceId: string | null | undefined): "base" | "pro" {
@@ -20,30 +37,107 @@ function planFromPriceId(priceId: string | null | undefined): "base" | "pro" {
     : "base"
 }
 
-function customerIdOf(value: string | { id: string } | null | undefined): string | null {
+function customerIdOf(value: CustomerRef): string | null {
   if (!value) return null
   return typeof value === "string" ? value : value.id
 }
 
-async function checkoutPriceId(sessionId: string): Promise<string | null> {
+async function retrieveInvoicePriceId(subscriptionRef: Invoice["subscription"]): Promise<string | null> {
+  const subId = typeof subscriptionRef === "string" ? subscriptionRef : subscriptionRef?.id
+  if (!subId) return null
   try {
-    const sub = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["line_items"] })
-    return sub.line_items?.data?.[0]?.price?.id ?? null
+    const sub = await stripe.subscriptions.retrieve(subId)
+    return sub.items.data[0]?.price?.id ?? null
   } catch (err) {
-    console.log("[stripe-webhook] checkoutPriceId error:", err instanceof Error ? err.message : err)
+    console.log("[stripe-webhook] retrieveInvoicePriceId error:", err instanceof Error ? err.message : err)
     return null
   }
 }
 
-async function customerEmail(customer: string | { id: string } | null | undefined): Promise<string | null> {
-  const id = customerIdOf(customer)
-  if (!id) return null
-  try {
-    const cust = await stripe.customers.retrieve(id)
-    if (!("deleted" in cust)) return cust.email ?? null
-  } catch (err) {
-    console.log("[stripe-webhook] customerEmail error:", err instanceof Error ? err.message : err)
+async function planFromInvoice(invoice: Invoice): Promise<"base" | "pro"> {
+  const meta = invoice.metadata?.plan
+  if (meta === "pro" || meta === "base") {
+    console.log("[stripe-webhook] plan from invoice.metadata.plan:", meta)
+    return meta
   }
+
+  const priceId =
+    invoice.lines?.data?.[0]?.price?.id ??
+    invoice.lines?.data?.[0]?.plan?.id ??
+    null
+  const resolvedPriceId = priceId ?? (await retrieveInvoicePriceId(invoice.subscription))
+  if (resolvedPriceId) {
+    console.log("[stripe-webhook] plan from priceId:", resolvedPriceId)
+    return planFromPriceId(resolvedPriceId)
+  }
+
+  const amount = invoice.lines?.data?.[0]?.amount
+  if (amount === 999) {
+    console.log("[stripe-webhook] plan from amount 999 -> base")
+    return "base"
+  }
+  if (amount === 1999) {
+    console.log("[stripe-webhook] plan from amount 1999 -> pro")
+    return "pro"
+  }
+
+  console.log("[stripe-webhook] WARNING: no price/amount found on invoice, defaulting to base")
+  return "base"
+}
+
+async function resolveAuthUserId(
+  supabase: Awaited<ReturnType<typeof serviceClient>>,
+  email: string | null | undefined,
+  customerId: string | null | undefined
+): Promise<string | null> {
+  if (email) {
+    try {
+      const { data } = await supabase
+        .schema("auth")
+        .from("users")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle()
+      if (data?.id) {
+        console.log("[stripe-webhook] resolved auth.users id by email:", data.id)
+        return data.id as string
+      }
+    } catch (err) {
+      console.log("[stripe-webhook] auth.users lookup unavailable:", err instanceof Error ? err.message : err)
+    }
+
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle()
+      if (data?.id) {
+        console.log("[stripe-webhook] resolved profiles.id by email:", data.id)
+        return data.id as string
+      }
+    } catch {
+      // tabella profilo non presente -> fallback sotto
+    }
+  }
+
+  if (customerId) {
+    try {
+      const { data } = await supabase
+        .from("subscriptions")
+        .select("user_id")
+        .eq("stripe_customer_id", customerId)
+        .maybeSingle()
+      if (data?.user_id) {
+        console.log("[stripe-webhook] resolved user_id from subscriptions by customerId:", customerId)
+        return data.user_id as string
+      }
+    } catch {
+      // ignora
+    }
+  }
+
+  console.log("[stripe-webhook] could not resolve auth user id for email:", email ?? "(none)")
   return null
 }
 
@@ -54,12 +148,14 @@ async function setPremium(payload: {
   customerId?: string | null
 }): Promise<void> {
   const supabase = serviceClient()
-  const { userId, email, plan, customerId } = payload
+  const { userId: metadataUserId, email, plan, customerId } = payload
   const now = new Date().toISOString()
-  console.log("[stripe-webhook] Updating Supabase for email:", email ?? "(none)", "with plan:", plan, "userId:", userId ?? "(none)", "customerId:", customerId ?? "(none)")
+
+  const userId = metadataUserId ?? (await resolveAuthUserId(supabase, email, customerId))
+  console.log("[stripe-webhook] Updating Supabase for email:", email ?? "(none)", "with plan:", plan, "| resolved userId:", userId ?? "(none)", "| customerId:", customerId ?? "(none)")
 
   if (userId) {
-    const res = await supabase
+    const subRes = await supabase
       .from("subscriptions")
       .upsert(
         {
@@ -71,43 +167,53 @@ async function setPremium(payload: {
         },
         { onConflict: "user_id" }
       )
-    if (res.error) console.log("[stripe-webhook] subscriptions upsert error:", res.error.code, res.error.message)
-  }
+    if (subRes.error) {
+      console.log("[stripe-webhook] subscriptions upsert error:", subRes.error.code, subRes.error.message)
+      if (subRes.error.code === "PGRST205") {
+        console.log("[stripe-webhook] subscriptions table missing — RUN supabase/migrations/00001_init.sql in production Supabase")
+      }
+    } else {
+      console.log("[stripe-webhook] subscriptions upsert ok")
+    }
 
-  const profilesPayload: Record<string, unknown> = {
-    plan_type: plan,
-    is_premium: true,
-    updated_at: now,
-  }
-  if (customerId) profilesPayload.stripe_customer_id = customerId
+    const profilesPayload: Record<string, unknown> = {
+      id: userId,
+      plan_type: plan,
+      is_premium: true,
+      updated_at: now,
+    }
+    if (email) profilesPayload.email = email
+    if (customerId) profilesPayload.stripe_customer_id = customerId
 
-  const tryTable = async (table: string) => {
-    let res = await supabase.from(table).update(profilesPayload).eq("email", email ?? "")
-    if (res.error?.code === "PGRST204") {
+    let profRes = await supabase.from("profiles").upsert(profilesPayload, { onConflict: "id" })
+    if (profRes.error?.code === "PGRST204") {
       const { stripe_customer_id: _omit, ...minimal } = profilesPayload
       void _omit
-      res = await supabase.from(table).update(minimal).eq("email", email ?? "")
+      profRes = await supabase.from("profiles").upsert(minimal, { onConflict: "id" })
     }
-    if (res.error) {
-      console.log(`[stripe-webhook] ${table} update error:`, res.error.code, res.error.message)
-    } else {
-      console.log(`[stripe-webhook] ${table} update ok, rows matched:`, res.count ?? "n/a")
-    }
-    if (res.error?.code === "PGRST205" && table === "profiles") {
-      await tryTable("users")
-    }
-  }
-
-  if (email) {
-    await tryTable("profiles")
-  } else if (userId) {
-    let res = await supabase.from("profiles").update(profilesPayload).eq("id", userId)
-    if (res.error) {
-      console.log("[stripe-webhook] profiles update (by id) error:", res.error.code, res.error.message)
-      if (res.error?.code === "PGRST205") {
-        const r2 = await supabase.from("users").update(profilesPayload).eq("id", userId)
-        if (r2.error) console.log("[stripe-webhook] users update (by id) error:", r2.error.code, r2.error.message)
+    if (profRes.error) {
+      console.log("[stripe-webhook] profiles upsert error:", profRes.error.code, profRes.error.message)
+      if (profRes.error.code === "PGRST204") {
+        console.log("[stripe-webhook] missing columns on profiles — RUN supabase/migrations/00002_stripe_live.sql in production Supabase")
       }
+      if (profRes.error.code === "PGRST205") {
+        console.log("[stripe-webhook] profiles table missing — RUN supabase/migrations/00001_init.sql in production Supabase")
+        const userRes = await supabase.from("users").upsert(profilesPayload, { onConflict: "id" })
+        if (userRes.error) console.log("[stripe-webhook] users upsert error:", userRes.error.code, userRes.error.message)
+        else console.log("[stripe-webhook] users upsert ok")
+      }
+    } else {
+      console.log("[stripe-webhook] profiles upsert ok")
+    }
+  } else {
+    const fallback = await supabase
+      .from("profiles")
+      .update({ plan_type: plan, is_premium: true, stripe_customer_id: customerId ?? null, updated_at: now })
+      .eq("email", email ?? "")
+    if (fallback.error) {
+      console.log("[stripe-webhook] profiles update-by-email fallback error:", fallback.error.code, fallback.error.message)
+    } else {
+      console.log("[stripe-webhook] profiles update-by-email fallback ok")
     }
   }
 }
@@ -117,7 +223,8 @@ export async function POST(request: Request) {
     "| SUPABASE_SERVICE_KEY:", !!process.env.SUPABASE_SERVICE_KEY,
     "| NEXT_PUBLIC_SUPABASE_URL:", !!process.env.NEXT_PUBLIC_SUPABASE_URL,
     "| STRIPE_WEBHOOK_SECRET:", !!process.env.STRIPE_WEBHOOK_SECRET,
-    "| NEXT_PUBLIC_STRIPE_PRICE_PRO:", !!process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO)
+    "| NEXT_PUBLIC_STRIPE_PRICE_PRO:", !!process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO,
+    "| NEXT_PUBLIC_STRIPE_PRICE_BASE:", !!process.env.NEXT_PUBLIC_STRIPE_PRICE_BASE)
 
   const sig = request.headers.get("stripe-signature")
   const secret = process.env.STRIPE_WEBHOOK_SECRET
@@ -143,39 +250,36 @@ export async function POST(request: Request) {
 
   switch (event.type) {
     case "checkout.session.completed": {
-      const session = event.data.object as SessionData
+      const session = event.data.object as CheckoutSession
       const userId = session.metadata?.userId ?? session.client_reference_id ?? null
       const email = session.customer_details?.email || session.customer_email || session.metadata?.email || null
       const customerId = customerIdOf(session.customer)
       let plan: "base" | "pro"
-      let priceId: string | null = null
       if (session.metadata?.plan === "pro" || session.metadata?.plan === "base") {
         plan = session.metadata.plan
       } else {
-        priceId = session.metadata?.priceId ?? (await checkoutPriceId(session.id))
+        const priceId = session.metadata?.priceId ?? null
         plan = planFromPriceId(priceId)
       }
-      console.log("[stripe-webhook] checkout.session.completed — email:", email, "| priceId:", priceId, "| metadata.plan:", session.metadata?.plan, "| customerId:", customerId)
+      console.log("[stripe-webhook] checkout.session.completed — email:", email, "| metadata.plan:", session.metadata?.plan, "| customerId:", customerId)
       await setPremium({ userId, email, plan, customerId })
       break
     }
 
     case "invoice.payment_succeeded": {
-      const invoice = event.data.object as {
-        customer: string | { id: string } | null
-        customer_email?: string | null
-        customer_details?: { email?: string | null } | null
-        metadata?: Record<string, string> | null
-        lines?: { data?: { price?: { id: string } | null; plan?: { id?: string } | null }[] }
-      }
+      const invoice = event.data.object as Invoice
       let email = invoice.customer_email || invoice.customer_details?.email || null
-      if (!email) {
-        email = await customerEmail(invoice.customer)
+      if (!email && typeof invoice.customer === "string") {
+        try {
+          const cust = await stripe.customers.retrieve(invoice.customer)
+          if (!("deleted" in cust)) email = cust.email ?? null
+        } catch (err) {
+          console.log("[stripe-webhook] customer retrieve error:", err instanceof Error ? err.message : err)
+        }
       }
-      const priceId = invoice.lines?.data?.[0]?.price?.id ?? invoice.lines?.data?.[0]?.plan?.id ?? null
       const customerId = customerIdOf(invoice.customer)
-      const plan = planFromPriceId(priceId)
-      console.log("[stripe-webhook] invoice.payment_succeeded — email:", email, "| priceId:", priceId, "| customerId:", customerId)
+      const plan = await planFromInvoice(invoice)
+      console.log("[stripe-webhook] invoice.payment_succeeded — email:", email, "| plan:", plan, "| customerId:", customerId)
       await setPremium({ email, plan, customerId })
       break
     }
@@ -184,7 +288,7 @@ export async function POST(request: Request) {
     case "customer.subscription.deleted": {
       const subscription = event.data.object as {
         id: string
-        customer: string | { id: string } | null
+        customer: CustomerRef
         status: string
         current_period_end?: number
         items?: { data?: { price?: { id?: string } | null }[] }
@@ -231,7 +335,7 @@ export async function POST(request: Request) {
     }
 
     case "invoice.payment_failed": {
-      const invoice = event.data.object as { customer: string | { id: string } | null }
+      const invoice = event.data.object as { customer: CustomerRef }
       const customerId = customerIdOf(invoice.customer)
       const { data: row } = await supabase
         .from("subscriptions")
