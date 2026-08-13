@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Alert, ProgressBar, StatBox } from "@/components/ui/ui"
+import { createClient } from "@/lib/supabase/client"
 import { TOPICS, topicLabel } from "@/lib/models"
 import {
   approvatiCount,
@@ -32,11 +33,20 @@ export function Dashboard({
     const params = new URLSearchParams(window.location.search)
     if (params.get("checkout") === "success") {
       setBanner("Pagamento riuscito. Benvenuto in LIVE Tracker Pro!")
+      ;(async () => {
+        const supabase = createClient()
+        try {
+          await supabase.auth.refreshSession()
+        } catch {
+          // ignora: la sessione verrà comunque ricaricata sotto
+        }
+        setTimeout(() => router.refresh(), 2500)
+      })()
     }
     if (params.get("confirmed") === "1") {
       setBanner("Email confermata con successo. Benvenuto!")
     }
-  }, [])
+  }, [router])
 
   const total = totalPool()
   const earned = totalGuadagno(videos)

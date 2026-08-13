@@ -24,11 +24,21 @@ export async function getUser() {
 
 export async function getSubscription(userId: string): Promise<SubscriptionRow | null> {
   const supabase = createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("subscriptions")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle()
+  if (error) {
+    console.error("[getSubscription] ERROR user:", userId, "->", error.code, error.message)
+  } else {
+    console.log(
+      "[getSubscription] user:",
+      userId,
+      "->",
+      data ? `plan=${(data as SubscriptionRow).plan} status=${(data as SubscriptionRow).status}` : "no row (free)"
+    )
+  }
   return (data as SubscriptionRow | null) ?? null
 }
 
@@ -47,11 +57,14 @@ export async function getVideos(userId: string): Promise<VideoItem[]> {
 
 export async function getWeeklyPlan(userId: string): Promise<{ weekday: number; topicID: number | null }[]> {
   const supabase = createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("profiles")
     .select("weekly_plan")
     .eq("id", userId)
     .maybeSingle()
+  if (error) {
+    console.error("[getWeeklyPlan] ERROR user:", userId, "->", error.code, error.message)
+  }
   const items = data?.weekly_plan as { weekday: number; topicID: number | null }[] | null
   return Array.isArray(items) ? items : []
 }
