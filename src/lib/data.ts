@@ -36,7 +36,6 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
     .select("*")
     .eq("user_id", userId)
     .maybeSingle()
-  console.log("[getSubscription] raw data:", JSON.stringify(data ?? null))
   if (error) {
     console.error("[getSubscription] ERROR user:", userId, "->", error.code, error.message)
     const { data: rows } = await supabase
@@ -46,15 +45,12 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
       .order("updated_at", { ascending: false })
       .limit(1)
     if (rows && rows.length > 0) {
-      const recovered = normalizeSubscriptionRow(rows[0] as Record<string, unknown>)
-      console.log("[getSubscription] recovered from duplicate rows -> plan:", recovered?.plan, "status:", recovered?.status)
-      return recovered
+      return normalizeSubscriptionRow(rows[0] as Record<string, unknown>)
     }
     return null
   }
   const row = normalizeSubscriptionRow(data as Record<string, unknown> | null)
   if (row) {
-    console.log("[getSubscription] user:", userId, "->", `plan=${row.plan} status=${row.status}`)
     return row
   }
   const { data: profile } = await supabase
@@ -63,7 +59,6 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
     .eq("id", userId)
     .maybeSingle()
   if (profile?.plan_type && profile.plan_type !== "free") {
-    console.log("[getSubscription] no subscriptions row — fallback profiles.plan_type:", profile.plan_type, "is_premium:", profile.is_premium)
     return {
       user_id: userId,
       plan: profile.plan_type as PlanId,
@@ -73,7 +68,6 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
       current_period_end: null,
     }
   }
-  console.log("[getSubscription] user:", userId, "-> no row (free)")
   return null
 }
 
