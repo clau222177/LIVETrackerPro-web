@@ -38,12 +38,13 @@ cp .env.example .env.local
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-NEXT_PUBLIC_STRIPE_PRO_PRICE_ID=price_...
-NEXT_PUBLIC_STRIPE_AGENCY_PRICE_ID=price_...
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+NEXT_PUBLIC_STRIPE_PRICE_BASE=price_...
+NEXT_PUBLIC_STRIPE_PRICE_PRO=price_...
 ```
 
 ### 3. Configurare Supabase
@@ -61,18 +62,18 @@ NEXT_PUBLIC_STRIPE_AGENCY_PRICE_ID=price_...
 ### 4. Configurare Stripe (per far funzionare i pagamenti)
 
 1. Crea prodotti/price subscription in [Stripe Dashboard](https://dashboard.stripe.com):
-   - **Pro** → `19,00 € / mese` (recurring)
-   - **Agency** → `49,00 € / mese` (recurring)
-2. Copia i `price_...` nei relativi `NEXT_PUBLIC_STRIPE_*_PRICE_ID`.
+   - **Base** → `9,99 € / mese` (recurring)
+   - **Pro** → `19,99 € / mese` (recurring)
+2. Copia i `price_...` nei relativi `NEXT_PUBLIC_STRIPE_PRICE_BASE` / `NEXT_PUBLIC_STRIPE_PRICE_PRO`.
 3. `STRIPE_SECRET_KEY` → sezione Developers → API keys (usa `sk_test_` in sviluppo).
 4. **Webhook**: Developers → Webhooks → Add endpoint:
-   - URL: `http://localhost:3000/api/webhooks/stripe`
-   - Eventi da inviare: `checkout.session.completed`, `customer.subscription.updated`,
-     `customer.subscription.deleted`, `invoice.payment_failed`
+   - URL: `http://localhost:3000/api/stripe/webhook`
+   - Eventi da inviare: `checkout.session.completed`, `invoice.payment_succeeded`,
+     `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`
    - Copia il `Signing secret` (`whsec_...`) in `STRIPE_WEBHOOK_SECRET`.
 
 > In sviluppo locale Stripe non può raggiungere `localhost`: usa
-> [Stripe CLI](https://stripe.com/docs/stripe-cli) con `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
+> [Stripe CLI](https://stripe.com/docs/stripe-cli) con `stripe listen --forward-to localhost:3000/api/stripe/webhook`
 > e copia il secret mostrato dal CLI.
 
 ### 5. Avviare
@@ -88,8 +89,8 @@ Apri `http://localhost:3000`.
 | Piano   | Prezzo      | Limite video   |
 | ------- | ----------- | -------------- |
 | Free    | 0 €         | 3              |
-| Pro     | 19 €/mese   | 100            |
-| Agency  | 49 €/mese   | illimitati     |
+| Base    | 9,99 €/mese | 30             |
+| Pro     | 19,99 €/mese| 100            |
 
 Il limite è verificato lato server (`/api/videos`) oltre che nell'UI.
 La checklist di approvazione è obbligatoria: non puoi salvare un video come
@@ -106,7 +107,7 @@ src/
 │   │   ├── plan/              # piano settimanale (GET, PUT)
 │   │   ├── checkout/          # Stripe Checkout
 │   │   ├── portal/            # Stripe Customer Portal
-│   │   └── webhooks/stripe/   # eventi subscription
+│   │   └── stripe/webhook/    # eventi subscription
 │   ├── auth/                  # callback, confirm, logout
 │   ├── login/                 # email + Google
 │   ├── pricing/               # piani
@@ -133,7 +134,7 @@ supabase/migrations/00001_init.sql   # schema DB completo
 2. In **Environment Variables** aggiungi tutte le variabili di `.env.example`
    (con i valori di produzione; `NEXT_PUBLIC_SITE_URL` = URL del tuo dominio).
 3. Nel dashboard Stripe aggiorna l'endpoint webhook con
-   `https://tuo-dominio.vercel.app/api/webhooks/stripe`.
+   `https://tuo-dominio.vercel.app/api/stripe/webhook`.
 4. In Supabase aggiungi il dominio del deploy tra gli URL consentiti di autenticazione.
 
 ## Portabilità dalla versione iOS
