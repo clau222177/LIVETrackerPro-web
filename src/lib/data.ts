@@ -31,15 +31,38 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
     .maybeSingle()
   if (error) {
     console.error("[getSubscription] ERROR user:", userId, "->", error.code, error.message)
-  } else {
-    console.log(
-      "[getSubscription] user:",
-      userId,
-      "->",
-      data ? `plan=${(data as SubscriptionRow).plan} status=${(data as SubscriptionRow).status}` : "no row (free)"
-    )
+    const { data: rows } = await supabase
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+    if (rows && rows.length > 0) {
+      console.log("[getSubscription] recovered from duplicate rows ->", (rows[0] as SubscriptionRow).plan)
+      return rows[0] as SubscriptionRow
+    }
+    return null
   }
+  console.log(
+    "[getSubscription] user:",
+    userId,
+    "->",
+    data ? `plan=${(data as SubscriptionRow).plan} status=${(data as SubscriptionRow).status}` : "no row (free)"
+  )
   return (data as SubscriptionRow | null) ?? null
+}
+
+export async function getProfile(userId: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle()
+  if (error) {
+    console.error("[getProfile] ERROR user:", userId, "->", error.code, error.message)
+  }
+  return data
 }
 
 export async function getVideos(userId: string): Promise<VideoItem[]> {

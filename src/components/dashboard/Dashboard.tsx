@@ -21,13 +21,30 @@ import type { PlanId } from "@/lib/plans"
 export function Dashboard({
   videos,
   planId,
+  email,
 }: {
   videos: VideoItem[]
   planId: PlanId
+  email: string
 }) {
   const router = useRouter()
   const [videosPerDay, setVideosPerDay] = useState(2)
   const [banner, setBanner] = useState<string | null>(null)
+
+  useEffect(() => {
+    console.log("PLAN DEBUG client:", { email, planId })
+    ;(async () => {
+      try {
+        const supabase = createClient()
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        console.log("PLAN DEBUG session:", session ? { id: session.user.id, email: session.user.email } : "none")
+      } catch (err) {
+        console.log("PLAN DEBUG session error:", err instanceof Error ? err.message : err)
+      }
+    })()
+  }, [email, planId])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
