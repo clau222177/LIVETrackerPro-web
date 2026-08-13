@@ -8,6 +8,7 @@ export type SubscriptionRow = {
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
   plan: PlanId
+  plan_type?: string | null
   status: string
   current_period_end: string | null
   created_at?: string
@@ -22,6 +23,12 @@ export async function getUser() {
   return user
 }
 
+export function normalizeSubscriptionRow(row: Record<string, unknown> | null | undefined): SubscriptionRow | null {
+  if (!row) return null
+  const plan = (row.plan_type ?? row.plan ?? "free") as PlanId
+  return { ...(row as unknown as SubscriptionRow), plan }
+}
+
 export async function getSubscription(userId: string): Promise<SubscriptionRow | null> {
   const supabase = createClient()
   const { data, error } = await supabase
@@ -29,6 +36,7 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
     .select("*")
     .eq("user_id", userId)
     .maybeSingle()
+  console.log("[getSubscription] raw data:", JSON.stringify(data ?? null))
   if (error) {
     console.error("[getSubscription] ERROR user:", userId, "->", error.code, error.message)
     const { data: rows } = await supabase
@@ -38,18 +46,35 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
       .order("updated_at", { ascending: false })
       .limit(1)
     if (rows && rows.length > 0) {
-      console.log("[getSubscription] recovered from duplicate rows ->", (rows[0] as SubscriptionRow).plan)
-      return rows[0] as SubscriptionRow
+      const recovered = normalizeSubscriptionRow(rows[0] as Record<string, unknown>)
+      console.log("[getSubscription] recovered from duplicate rows -> plan:", recovered?.plan, "status:", recovered?.status)
+      return recovered
     }
     return null
   }
-  console.log(
-    "[getSubscription] user:",
-    userId,
-    "->",
-    data ? `plan=${(data as SubscriptionRow).plan} status=${(data as SubscriptionRow).status}` : "no row (free)"
-  )
-  return (data as SubscriptionRow | null) ?? null
+  const row = normalizeSubscriptionRow(data as Record<string, unknown> | null)
+  if (row) {
+    console.log("[getSubscription] user:", userId, "->", `plan=${row.plan} status=${row.status}`)
+    return row
+  }
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("plan_type, is_premium")
+    .eq("id", userId)
+    .maybeSingle()
+  if (profile?.plan_type && profile.plan_type !== "free") {
+    console.log("[getSubscription] no subscriptions row — fallback profiles.plan_type:", profile.plan_type, "is_premium:", profile.is_premium)
+    return {
+      user_id: userId,
+      plan: profile.plan_type as PlanId,
+      status: profile.is_premium ? "active" : "inactive",
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      current_period_end: null,
+    }
+  }
+  console.log("[getSubscription] user:", userId, "-> no row (free)")
+  return null
 }
 
 export async function getProfile(userId: string) {

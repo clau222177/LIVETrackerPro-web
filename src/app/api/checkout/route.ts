@@ -33,16 +33,21 @@ export async function POST(request: Request) {
       metadata: { userId: user.id },
     })
     customerId = customer.id
-    await supabase.from("subscriptions").upsert(
-      {
-        user_id: user.id,
-        stripe_customer_id: customerId,
-        plan: plan.id,
-        status: "pending",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    )
+    const pendingRow: Record<string, unknown> = {
+      user_id: user.id,
+      stripe_customer_id: customerId,
+      plan: plan.id,
+      status: "pending",
+      updated_at: new Date().toISOString(),
+    }
+    let up = await supabase.from("subscriptions").upsert(pendingRow, { onConflict: "user_id" })
+    if (up.error?.code === "PGRST204") {
+      const { plan: _p, ...withoutPlan } = pendingRow
+      void _p
+      withoutPlan.plan_type = plan.id
+      up = await supabase.from("subscriptions").upsert(withoutPlan, { onConflict: "user_id" })
+    }
+    if (up.error) console.error("[checkout] subscriptions upsert error:", up.error.code, up.error.message)
   }
 
   const origin =

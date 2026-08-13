@@ -141,6 +141,27 @@ async function resolveAuthUserId(
   return null
 }
 
+async function upsertSubscription(
+  supabase: Awaited<ReturnType<typeof serviceClient>>,
+  payload: Record<string, unknown>
+): Promise<void> {
+  let res = await supabase.from("subscriptions").upsert(payload, { onConflict: "user_id" })
+  if (res.error?.code === "PGRST204" && "plan" in payload) {
+    const { plan: _p, ...withoutPlan } = payload
+    void _p
+    withoutPlan.plan_type = payload.plan
+    res = await supabase.from("subscriptions").upsert(withoutPlan, { onConflict: "user_id" })
+  }
+  if (res.error) {
+    console.log("[stripe-webhook] subscriptions upsert error:", res.error.code, res.error.message)
+    if (res.error.code === "PGRST205") {
+      console.log("[stripe-webhook] subscriptions table missing — RUN supabase/migrations/00001_init.sql in production Supabase")
+    }
+  } else {
+    console.log("[stripe-webhook] subscriptions upsert ok")
+  }
+}
+
 async function setPremium(payload: {
   userId?: string | null
   email?: string | null
@@ -155,26 +176,13 @@ async function setPremium(payload: {
   console.log("[stripe-webhook] Updating Supabase for email:", email ?? "(none)", "with plan:", plan, "| resolved userId:", userId ?? "(none)", "| customerId:", customerId ?? "(none)")
 
   if (userId) {
-    const subRes = await supabase
-      .from("subscriptions")
-      .upsert(
-        {
-          user_id: userId,
-          plan,
-          status: "active",
-          stripe_customer_id: customerId ?? null,
-          updated_at: now,
-        },
-        { onConflict: "user_id" }
-      )
-    if (subRes.error) {
-      console.log("[stripe-webhook] subscriptions upsert error:", subRes.error.code, subRes.error.message)
-      if (subRes.error.code === "PGRST205") {
-        console.log("[stripe-webhook] subscriptions table missing — RUN supabase/migrations/00001_init.sql in production Supabase")
-      }
-    } else {
-      console.log("[stripe-webhook] subscriptions upsert ok")
-    }
+    await upsertSubscription(supabase, {
+      user_id: userId,
+      plan,
+      status: "active",
+      stripe_customer_id: customerId ?? null,
+      updated_at: now,
+    })
 
     const profilesPayload: Record<string, unknown> = {
       id: userId,
@@ -306,23 +314,17 @@ export async function POST(request: Request) {
           subscription.status === "incomplete_expired" ||
           subscription.status === "unpaid"
         const priceId = subscription.items?.data?.[0]?.price?.id ?? null
-        const res = await supabase
-          .from("subscriptions")
-          .upsert(
-            {
-              user_id: row.user_id,
-              plan: cancelled ? "free" : planFromPriceId(priceId),
-              status: cancelled ? "cancelled" : subscription.status,
-              stripe_customer_id: customerId,
-              stripe_subscription_id: subscription.id,
-              current_period_end: subscription.current_period_end
-                ? new Date(subscription.current_period_end * 1000).toISOString()
-                : null,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "user_id" }
-          )
-        if (res.error) console.log("[stripe-webhook] subscriptions upsert error:", res.error.code, res.error.message)
+        await upsertSubscription(supabase, {
+          user_id: row.user_id,
+          plan: cancelled ? "free" : planFromPriceId(priceId),
+          status: cancelled ? "cancelled" : subscription.status,
+          stripe_customer_id: customerId,
+          stripe_subscription_id: subscription.id,
+          current_period_end: subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000).toISOString()
+            : null,
+          updated_at: new Date().toISOString(),
+        })
         const pres = await supabase
           .from("profiles")
           .update({ is_premium: !cancelled, plan_type: cancelled ? "free" : planFromPriceId(priceId), updated_at: new Date().toISOString() })
@@ -343,12 +345,12 @@ export async function POST(request: Request) {
         .eq("stripe_customer_id", customerId ?? "")
         .maybeSingle()
       if (row?.user_id) {
-        await supabase
-          .from("subscriptions")
-          .upsert(
-            { user_id: row.user_id, plan: "free", status: "past_due", updated_at: new Date().toISOString() },
-            { onConflict: "user_id" }
-          )
+        await upsertSubscription(supabase, {
+          user_id: row.user_id,
+          plan: "free",
+          status: "past_due",
+          updated_at: new Date().toISOString(),
+        })
         await supabase
           .from("profiles")
           .update({ is_premium: false, plan_type: "free", updated_at: new Date().toISOString() })
