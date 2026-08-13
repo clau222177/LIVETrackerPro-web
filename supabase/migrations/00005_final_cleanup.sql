@@ -2,14 +2,14 @@
 -- Esegui in Supabase SQL Editor del progetto di PRODUZIONE
 
 -- ============================================================
--- 1. Dedup subscriptions: tieni solo il rango più recente per user_id
+-- 1. Dedup subscriptions: tieni solo l'ultima riga per user_id
 -- ============================================================
 with ranked as (
   select
     id,
     row_number() over (
       partition by user_id
-      order by updated_at desc nulls last, created_at desc nulls last, id desc
+      order by id desc
     ) as rn
   from public.subscriptions
 )

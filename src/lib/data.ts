@@ -37,7 +37,6 @@ export async function getSubscription(userId: string): Promise<SubscriptionRow |
     .eq("user_id", userId)
     .maybeSingle()
   if (error) {
-    console.error("[getSubscription] ERROR user:", userId, "->", error.code, error.message)
     const { data: rows } = await supabase
       .from("subscriptions")
       .select("*")
