@@ -1,4 +1,4 @@
-export type PlanId = "free" | "pro" | "agency"
+export type PlanId = "free" | "base" | "pro"
 
 export type Plan = {
   id: PlanId
@@ -29,41 +29,47 @@ export const PLANS: Plan[] = [
     ],
   },
   {
+    id: "base",
+    name: "Base",
+    tagline: "Per creator che iniziano a crescere",
+    price: 9.99,
+    priceLabel: "9,99 € / mese",
+    limit: 30,
+    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_BASE ?? "",
+    features: [
+      "30 video tracciati",
+      "Tutto del piano Free",
+      "Statistiche avanzate",
+      "Calendario pianificazione",
+      "Supporto email",
+    ],
+  },
+  {
     id: "pro",
     name: "Pro",
     tagline: "Per creator in crescita",
-    price: 19,
-    priceLabel: "19 € / mese",
+    price: 19.99,
+    priceLabel: "19,99 € / mese",
     limit: 100,
-    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID ?? "",
+    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO ?? "",
     features: [
       "100 video tracciati",
-      "Tutto del piano Free",
-      "Statistiche avanzate",
+      "Tutto del piano Base",
+      "Statistiche illimitate",
       "Calendario pianificazione",
       "Supporto prioritario",
     ],
     highlighted: true,
   },
-  {
-    id: "agency",
-    name: "Agency",
-    tagline: "Per team e agenzie",
-    price: 49,
-    priceLabel: "49 € / mese",
-    limit: null,
-    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_AGENCY_PRICE_ID ?? "",
-    features: [
-      "Video illimitati",
-      "Tutto del piano Pro",
-      "Gestione multi-creator",
-      "Statistiche illimitate",
-    ],
-  },
 ]
 
 export function planById(id: string | null | undefined): Plan {
   return PLANS.find((p) => p.id === id) ?? PLANS[0]
+}
+
+export function planByPriceId(priceId: string | null | undefined): Plan | undefined {
+  if (!priceId) return undefined
+  return PLANS.find((p) => p.stripePriceId === priceId)
 }
 
 export function planLimit(id: string | null | undefined): number | null {

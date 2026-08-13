@@ -6,10 +6,10 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "sk_test_place
 
 export function planFromPriceId(priceId: string | null | undefined): string {
   if (!priceId) return "free"
-  if (process.env.NEXT_PUBLIC_STRIPE_AGENCY_PRICE_ID && priceId === process.env.NEXT_PUBLIC_STRIPE_AGENCY_PRICE_ID) {
-    return "agency"
+  if (process.env.NEXT_PUBLIC_STRIPE_PRICE_BASE && priceId === process.env.NEXT_PUBLIC_STRIPE_PRICE_BASE) {
+    return "base"
   }
-  if (process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID && priceId === process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID) {
+  if (process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO && priceId === process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO) {
     return "pro"
   }
   return "free"

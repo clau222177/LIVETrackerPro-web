@@ -30,6 +30,8 @@ export async function POST(request: Request) {
     stripe_subscription_id?: string | null
     current_period_end?: string | null
   }) => {
+    const isPremium = payload.status === "active" || payload.status === "trialing"
+    const planType = isPremium ? payload.plan : "free"
     await supabase.from("subscriptions").upsert(
       {
         user_id: payload.user_id,
@@ -42,6 +44,15 @@ export async function POST(request: Request) {
       },
       { onConflict: "user_id" }
     )
+    await supabase
+      .from("profiles")
+      .update({
+        stripe_customer_id: payload.stripe_customer_id ?? null,
+        is_premium: isPremium,
+        plan_type: planType,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", payload.user_id)
   }
 
   switch (event.type) {

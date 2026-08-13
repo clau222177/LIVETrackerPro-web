@@ -19,11 +19,6 @@ export function PricingCards({
   const handleAction = async (plan: Plan) => {
     setError(null)
 
-    if (plan.id === "free") {
-      router.push("/login?signup=1")
-      return
-    }
-
     if (isSubscribed) {
       setLoading("portal")
       try {
@@ -44,9 +39,13 @@ export function PricingCards({
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: plan.id }),
+        body: JSON.stringify({ priceId: plan.stripePriceId }),
       })
       const data = await res.json()
+      if (res.status === 401) {
+        router.push("/login?signup=1")
+        return
+      }
       if (data.url) window.location.href = data.url
       else setError(data.error ?? "Errore nell'avvio del pagamento.")
     } catch {
@@ -56,6 +55,8 @@ export function PricingCards({
     }
   }
 
+  const plans = PLANS.filter((p) => p.id !== "free")
+
   return (
     <div>
       {error && (
@@ -63,14 +64,14 @@ export function PricingCards({
           {error}
         </div>
       )}
-      <div className="grid gap-5 md:grid-cols-3">
-        {PLANS.map((plan) => {
+      <div className="mx-auto grid max-w-4xl gap-5 md:grid-cols-2">
+        {plans.map((plan) => {
           const isCurrent = plan.id === currentPlan
           return (
             <div
               key={plan.id}
               className={`card relative flex flex-col p-6 ${
-                plan.highlighted ? "border-brand/60 shadow-[0_0_40px_-12px_rgba(254,44,85,0.5)]" : ""
+                plan.highlighted ? "border-brand/60 shadow-[0_0_40px_-12px_rgba(255,46,99,0.5)]" : ""
               }`}
             >
               {plan.highlighted && (
@@ -81,8 +82,8 @@ export function PricingCards({
               <div className="font-bold text-white">{plan.name}</div>
               <div className="mt-1 text-xs text-muted">{plan.tagline}</div>
               <div className="mt-4 text-3xl font-black text-white">
-                {plan.price === 0 ? "Gratis" : `${plan.price} €`}
-                {plan.price > 0 && <span className="text-sm font-semibold text-muted"> / mese</span>}
+                {plan.price === 0 ? "Gratis" : `${plan.priceLabel.replace(" € / mese", "")} €`}
+                <span className="text-sm font-semibold text-muted"> / mese</span>
               </div>
               <div className="mt-2 text-xs text-muted">
                 {plan.limit === null ? "Video illimitati" : `${plan.limit} video tracciati`}
@@ -100,19 +101,13 @@ export function PricingCards({
               <button
                 onClick={() => handleAction(plan)}
                 disabled={loading !== null}
-                className={`mt-6 w-full ${
-                  plan.highlighted ? "btn-brand" : "btn-ghost"
-                } ${isCurrent && plan.id !== "free" ? "!bg-white/5 !text-muted" : ""}`}
+                className="btn-brand mt-6 w-full"
               >
                 {loading === plan.id || loading === "portal"
                   ? "Attendere..."
                   : isCurrent
-                    ? plan.id === "free"
-                      ? "Il tuo piano"
-                      : "Gestisci abbonamento"
-                    : plan.price === 0
-                      ? "Inizia gratis"
-                      : "Sblocca"}
+                    ? "Gestisci abbonamento"
+                    : "Abbonati ora"}
               </button>
             </div>
           )

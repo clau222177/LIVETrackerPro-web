@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { getUser } from "@/lib/data"
 import { stripe } from "@/lib/stripe"
-import { PLANS } from "@/lib/plans"
+import { planByPriceId } from "@/lib/plans"
 
 export const dynamic = "force-dynamic"
 
@@ -10,9 +10,9 @@ export async function POST(request: Request) {
   const user = await getUser()
   if (!user) return NextResponse.json({ error: "Non autorizzato" }, { status: 401 })
 
-  const { plan: planId } = (await request.json().catch(() => ({}))) as { plan?: string }
-  const plan = PLANS.find((p) => p.id === planId)
-  if (!plan || plan.price === 0 || !plan.stripePriceId) {
+  const { priceId } = (await request.json().catch(() => ({}))) as { priceId?: string }
+  const plan = planByPriceId(priceId)
+  if (!plan || !plan.stripePriceId) {
     return NextResponse.json({ error: "Piano non acquistabile. Configura gli Stripe Price ID." }, { status: 400 })
   }
 
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
   const origin =
     request.headers.get("origin") ??
     process.env.NEXT_PUBLIC_SITE_URL ??
-    "http://localhost:3000"
+    "https://getlivetrackerpro.com"
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
