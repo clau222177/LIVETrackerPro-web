@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     mode: "subscription",
     customer: customerId,
     client_reference_id: user.id,
-    metadata: { userId: user.id, plan: plan.id },
+    metadata: { userId: user.id, plan: plan.id, priceId: plan.stripePriceId },
     line_items: [{ price: plan.stripePriceId, quantity: 1 }],
     success_url: `${origin}/dashboard?checkout=success`,
     cancel_url: `${origin}/pricing`,
