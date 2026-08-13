@@ -22,8 +22,6 @@ export default async function DashboardPage() {
   const plan = planById(planId)
   const userEmail = user.email ?? ""
 
-  const displayPlanLabel = userEmail === "claudiu.vella7@gmail.com" ? "Base" : plan.name
-
   console.log(
     "[dashboard] PLAN DEBUG server:",
     JSON.stringify({
@@ -34,12 +32,11 @@ export default async function DashboardPage() {
       dbStatus: subscription?.status ?? null,
       profilePlanType: profile?.plan_type ?? null,
       profileIsPremium: profile?.is_premium ?? null,
-      displayPlanLabel,
     })
   )
 
   return (
-    <AppShell email={userEmail} planLabel={displayPlanLabel}>
+    <AppShell email={userEmail} planLabel={plan.name}>
       <Dashboard videos={videos} planId={planId} email={userEmail} />
     </AppShell>
   )
