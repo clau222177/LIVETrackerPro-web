@@ -48,9 +48,10 @@ export function videoRowToItem(row: TrackedVideoRow): VideoItem {
   }
 }
 
-export function itemToVideoRow(video: VideoItem): Record<string, unknown> {
+export function itemToVideoRow(video: VideoItem, userId: string): Record<string, unknown> {
   return {
     id: video.id,
+    user_id: userId,
     title: video.titolo,
     topic: topicLabel(video.topicID),
     status: video.status,

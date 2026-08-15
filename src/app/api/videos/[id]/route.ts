@@ -37,7 +37,7 @@ export async function PUT(request: Request, { params }: Params) {
   const supabase = createClient()
   const { error } = await supabase
     .from("tracked_videos")
-    .update(itemToVideoRow(video))
+    .update(itemToVideoRow(video, user.id))
     .eq("user_id", user.id)
     .eq("id", video.id)
 

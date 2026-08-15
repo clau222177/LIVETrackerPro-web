@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   }
 
   const supabase = createClient()
-  const { error } = await supabase.from("tracked_videos").insert(itemToVideoRow(video))
+  const { error } = await supabase.from("tracked_videos").insert(itemToVideoRow(video, user.id))
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
