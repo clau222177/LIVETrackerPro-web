@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { getSubscription, getUser, getVideos } from "@/lib/data"
+import { findBlockMatch } from "@/lib/contentFilter"
+import { getSubscription, getUser, getVideos, itemToVideoRow } from "@/lib/data"
 import { isChecklistComplete, newVideoItem, type VideoItem } from "@/lib/models"
 import { planById } from "@/lib/plans"
 
@@ -24,6 +25,17 @@ export async function POST(request: Request) {
     views: typeof body.views === "number" ? body.views : 0,
   })
 
+  // Blocco keyword scam: il video NON viene tracciato. Niente viene cancellato da TikTok.
+  const block = findBlockMatch(video)
+  if (block) {
+    return NextResponse.json(
+      {
+        error: `Contenuto bloccato: "${block.keyword}" è una keyword vietata. I video scam vengono nascosti dal tracker — il video resta su TikTok (impostalo su "Solo io").`,
+      },
+      { status: 422 }
+    )
+  }
+
   // Checklist obbligatoria per stato "Pubblicato" (regola dell'app)
   if (video.status === "pubblicato" && !isChecklistComplete(video)) {
     return NextResponse.json(
@@ -46,13 +58,7 @@ export async function POST(request: Request) {
   }
 
   const supabase = createClient()
-  const { error } = await supabase.from("tracked_videos").insert({
-    user_id: user.id,
-    video_id: video.id,
-    title: video.titolo,
-    views: video.views,
-    data: video,
-  })
+  const { error } = await supabase.from("tracked_videos").insert(itemToVideoRow(video))
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

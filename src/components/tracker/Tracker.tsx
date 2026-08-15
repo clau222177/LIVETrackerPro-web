@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { Alert, Badge, EmptyState } from "@/components/ui/ui"
 import { TrackerForm } from "@/components/tracker/TrackerForm"
+import { hideScamVideos } from "@/lib/contentFilter"
 import {
   STATUS_COLOR,
   STATUS_LABEL,
@@ -40,7 +41,10 @@ export function Tracker({
     return Number.isFinite(parsed) ? parsed : null
   }, [topicParam])
 
-  const filtered = videos.filter((v) => {
+  // Layer client (safety net): nasconde in tempo reale i video con keyword bloccate.
+  const visibleVideos = useMemo(() => hideScamVideos(videos), [videos])
+
+  const filtered = visibleVideos.filter((v) => {
     const topicMatch = activeTopic === null || v.topicID === activeTopic
     const statusMatch = filter === "tutti" || v.status === filter
     return topicMatch && statusMatch

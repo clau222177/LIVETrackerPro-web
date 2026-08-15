@@ -1,6 +1,68 @@
 import { createClient } from "@/lib/supabase/server"
-import type { VideoItem } from "@/lib/models"
+import { hideScamVideos } from "@/lib/contentFilter"
+import { DEFAULT_CHECKLIST, topicLabel, uuid, type ChecklistItem, type VideoItem, type VideoStatus } from "@/lib/models"
 import type { PlanId } from "@/lib/plans"
+
+export type TrackedVideoRow = {
+  id: string
+  user_id: string
+  title: string | null
+  topic: string | null
+  status: string | null
+  publish_date: string | null
+  views: number | null
+  earnings: number | string | null
+  tiktok_link: string | null
+  notes: string | null
+  checklist: unknown
+  rejection_reason: string | null
+  created_at: string | null
+  updated_at: string | null
+  video_id?: string | null
+  data?: unknown
+}
+
+const VIDEO_STATUS_KEYS: VideoStatus[] = ["bozza", "pubblicato", "inRevisione", "approvato", "rifiutato"]
+
+export function videoRowToItem(row: TrackedVideoRow): VideoItem {
+  const fallback = (row.data ?? {}) as Partial<VideoItem>
+  const status = VIDEO_STATUS_KEYS.includes(row.status as VideoStatus)
+    ? (row.status as VideoStatus)
+    : (fallback.status ?? "bozza")
+  const topicID = row.topic === "Topic 2" ? 2 : typeof fallback.topicID === "number" ? fallback.topicID : 1
+  return {
+    id: row.id ?? fallback.id ?? uuid(),
+    titolo: row.title ?? fallback.titolo ?? "Video senza titolo",
+    topicID,
+    status,
+    dataPubblicazione: row.publish_date ?? fallback.dataPubblicazione ?? null,
+    linkTikTok: row.tiktok_link ?? fallback.linkTikTok ?? "",
+    guadagno: row.earnings != null ? Number(row.earnings) : (fallback.guadagno ?? 0),
+    note: row.notes ?? fallback.note ?? "",
+    checklist:
+      Array.isArray(row.checklist) && row.checklist.length > 0
+        ? (row.checklist as ChecklistItem[])
+        : (fallback.checklist ?? DEFAULT_CHECKLIST.map((c) => ({ ...c }))),
+    createdAt: row.created_at ?? fallback.createdAt ?? new Date().toISOString(),
+    views: row.views != null ? Number(row.views) : (fallback.views ?? 0),
+  }
+}
+
+export function itemToVideoRow(video: VideoItem): Record<string, unknown> {
+  return {
+    id: video.id,
+    title: video.titolo,
+    topic: topicLabel(video.topicID),
+    status: video.status,
+    publish_date: video.dataPubblicazione ? video.dataPubblicazione.slice(0, 10) : null,
+    views: video.views,
+    earnings: video.guadagno,
+    tiktok_link: video.linkTikTok || null,
+    notes: video.note || null,
+    checklist: video.checklist,
+    rejection_reason: null,
+  }
+}
 
 export type SubscriptionRow = {
   id?: string
@@ -87,13 +149,11 @@ export async function getVideos(userId: string): Promise<VideoItem[]> {
   const supabase = createClient()
   const { data: rows } = await supabase
     .from("tracked_videos")
-    .select("data")
+    .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
 
-  return (rows ?? [])
-    .map((row) => row.data as VideoItem | null)
-    .filter((v): v is VideoItem => v !== null && typeof v === "object")
+  return hideScamVideos((rows ?? []).map((row) => videoRowToItem(row as TrackedVideoRow)))
 }
 
 export async function getWeeklyPlan(userId: string): Promise<{ weekday: number; topicID: number | null }[]> {
